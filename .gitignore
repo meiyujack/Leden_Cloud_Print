@@ -144,3 +144,5 @@ download/
 pyproject.toml
 
 release/
+
+test.*

@@ -1,8 +1,9 @@
 import socket, time
 import uuid, random
 import subprocess
+import sqlite3
 
-from tkinter import Tk, ttk
+from tkinter import Tk, ttk, Menu
 import tkinter
 from tkinter import messagebox
 
@@ -10,11 +11,22 @@ from template import Template
 
 
 class App(Tk):
+    numbers=0
 
     def __init__(self):
         super().__init__()
         self.iconbitmap("favicon.ico")
-        self.title("LEDEN云打印0.6")
+        self.title("LEDEN云打印0.7")
+        menubar=Menu(self)
+        file_menu=Menu(menubar,tearoff=0)
+        file_menu.add_command(label="新建",command=None)
+        file_menu.add_command(label="打开",command=None)
+        file_menu.add_command(label="保存",command=None)
+        file_menu.add_command(label="另存为",command=None)
+        file_menu.add_separator()
+        file_menu.add_command(label="退出",command=self.on_closing)
+        menubar.add_cascade(label="文件",menu=file_menu)
+        self.config(menu=menubar)
         self.geometry("500x300+650+207")
         self.resizable(0, 0)
         frm = ttk.Frame(self)
@@ -106,7 +118,38 @@ class App(Tk):
 
         self.process = subprocess.Popen(
             ["frp/frpc.exe", '-c', 'frp/frpc.toml'])
-
+        self.conn=App.get_conn()
+        
+    @staticmethod
+    def get_conn():
+        conn=sqlite3.connect("db.sqlite3")
+        return conn
+    
+    def insert(self, value:list,data:dict=None):
+        if value:
+            values=','.join(['?'] * len(value))
+            sql=f"INSERT INTO log VALUES({values});"
+            try:
+                cur=self.conn.cursor()
+                cur=cur.execute(sql, tuple(a for a in value))
+                self.conn.commit()
+                return cur
+            except sqlite3.Error as ex:
+                self.conn.rollback()
+                return f"Error:{ex}"
+        if data:
+            keys = ','.join(data.keys())
+            values = ','.join(['?'] * len(data))
+            try:
+                sql = f"INSERT INTO log({keys}) VALUES({values});"
+                cur=self.conn.cursor()
+                cur=cur.execute(sql, tuple(data.values()))
+                self.conn.commit()
+                return cur
+            except sqlite3.Error as ex:
+                self.conn.rollback()
+                return f"Error:{ex}"
+            
     @staticmethod
     def generate_unique(type: str, num: int):
         answer = ''
@@ -133,31 +176,33 @@ class App(Tk):
                 s.connect((printer_ip, port))
                 s.sendall(cmd.encode("ansi"))
                 print(
-                    f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {self.titleVar.get()}打印任务已发送"
+                    f"{time.strftime('%Y-%m-%d %H:%M:%S')} - `{self.titleVar.get()}`打印任务已发送"
                 )
             except Exception as e:
                 print(f"发送打印任务失败：{e}")
-
-    def generate_cmd(self, title: str, content: list, rfid_type_num: tuple,
+    
+    def generate_cmd(self,title: str, content: list, rfid_type_num: tuple,
                      qr: str):
         my = Template()
-        title = my.get_content(X=200, Y=10, WD=40, LG=40, text=title)
+        title_cmd = my.get_content(X=200, Y=10, WD=40, LG=40, text=title)
         text, text2, text3, text4 = content
-        rfid = self.generate_unique(rfid_type_num[0], rfid_type_num[1])
-        qr = my.get_qr(qr=qr, x=480, y=220)
-        return f"{my.header}{title}{my.get_content(Y=60,text=text)}{my.get_content(Y=110,text=text2)}{my.get_content(Y=150,text=text3)}{my.get_content(Y=200,text=text4)}{my.get_rfid(rfid)}{qr}{my.footer}"
+        rfid = App.generate_unique(rfid_type_num[0], rfid_type_num[1])
+        qr_cmd = my.get_qr(qr=qr, x=480, y=220)
+        App.numbers+=1
+        self.insert([App.numbers,rfid,title,text,text2,text3,text4,qr])
+        return f"{my.header}{title_cmd}{my.get_content(Y=60,text=text)}{my.get_content(Y=110,text=text2)}{my.get_content(Y=150,text=text3)}{my.get_content(Y=200,text=text4)}{my.get_rfid(rfid)}{qr_cmd}{my.footer}"
 
     def cloud_print(self):
+        content1=self.textVar.get()
+        content2=self.text2Var.get()
+        content3=self.text3Var.get()
+        content4=self.text4Var.get()
         self.send_print_job(
-            self.generate_cmd(self.titleVar.get(), [
-                self.textVar.get(),
-                self.text2Var.get(),
-                self.text3Var.get(),
-                self.text4Var.get()
-            ], (self.comboVar.get(), self.combo2Var.get()), self.qrVar.get()))
+            self.generate_cmd(self.titleVar.get(), [content1,content2,content3,content4], (self.comboVar.get(), self.combo2Var.get()), self.qrVar.get()))
 
     def on_closing(self):
         if messagebox.askokcancel("退出", "你确定要退出吗？"):
+            self.conn.close()
             self.quit()
             self.process.terminate()
             self.destroy()
