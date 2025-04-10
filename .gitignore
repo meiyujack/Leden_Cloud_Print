@@ -137,9 +137,6 @@ dmypy.json
 # download
 download/
 
-#sqlite3
-*.db
-
 #poetry, cause server's python version
 pyproject.toml
 
